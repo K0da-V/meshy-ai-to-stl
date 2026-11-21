@@ -15,30 +15,38 @@ function setBusy(isBusy, text) {
   statusEl.textContent = text;
 }
 
-function isMeshyUrl(value) {
-  if (!value || typeof value !== "string") return false;
-  const clean = value.split("#")[0];
-  return /\.meshy(?:$|[?&])/i.test(clean) || clean.includes("misc/cdn-models");
-}
-
 function baseNameFromUrl(value) {
   try {
-    const path = new URL(value).pathname.split("/").pop() || "model.meshy";
-    const decoded = decodeURIComponent(path).replace(/\.meshy$/i, "");
+    const path = new URL(value).pathname.split("/").pop() || "model";
+    const decoded = decodeURIComponent(path).replace(/\.(?:meshy|glb|gltf)$/i, "");
     return decoded.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/g, "") || "model";
   } catch {
     return "model";
   }
 }
 
-function scanPageForMeshyLinks() {
+function isMeshyUrl(value) {
+  return /\.meshy(?:$|[?&])/i.test(value) || value.includes("misc/cdn-models");
+}
+
+function isGlbBuffer(buffer) {
+  const bytes = new Uint8Array(buffer);
+  return bytes.length >= 4 && new TextDecoder().decode(bytes.subarray(0, 4)) === "glTF";
+}
+
+function scanPageForModelLinks() {
   const urls = new Set();
   const add = (value) => {
     if (!value || typeof value !== "string") return;
     try {
       const url = new URL(value, location.href);
       const clean = url.href.split("#")[0];
-      if (/\.meshy(?:$|[?&])/i.test(clean) || clean.includes("misc/cdn-models")) urls.add(url.href);
+      const isMeshy = /\.meshy(?:$|[?&])/i.test(clean) || clean.includes("misc/cdn-models");
+      const isGlb = /\.(?:glb|gltf)(?:$|[?&])/i.test(clean);
+      const isTripo = /(?:^|\.)tripo3d\.ai$/i.test(url.hostname)
+        && /(?:model|task|download|output)/i.test(url.pathname)
+        && url.href !== location.href;
+      if (isMeshy || isGlb || isTripo) urls.add(url.href);
     } catch {
       // Ignore invalid URLs.
     }
@@ -52,7 +60,7 @@ function scanPageForMeshyLinks() {
     add(el.getAttribute("data-url"));
     add(el.getAttribute("data-model-url"));
   });
-  for (const match of document.documentElement.innerHTML.matchAll(/https?:\/\/[^"'<>\\\s]+(?:\.meshy|misc\/cdn-models)[^"'<>\\\s]*/gi)) {
+  for (const match of document.documentElement.innerHTML.matchAll(/https?:\/\/[^"'<>\\\s]+(?:\.meshy|\.glb|\.gltf|misc\/cdn-models)[^"'<>\\\s]*/gi)) {
     add(match[0]);
   }
 
@@ -69,21 +77,21 @@ async function getLinksFromActiveTab() {
   const tab = await getActiveTab();
   const all = new Set();
 
-  const remembered = await chrome.runtime.sendMessage({ type: "get-meshy-requests", tabId: tab.id }).catch(() => null);
+  const remembered = await chrome.runtime.sendMessage({ type: "get-model-requests", tabId: tab.id }).catch(() => null);
   for (const link of remembered?.links || []) all.add(link);
 
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, { type: "scan-meshy-links" });
+    const response = await chrome.tabs.sendMessage(tab.id, { type: "scan-model-links" });
     for (const link of response?.links || []) all.add(link);
   } catch {
     const [result] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: scanPageForMeshyLinks,
+      func: scanPageForModelLinks,
     });
     for (const link of result?.result || []) all.add(link);
   }
 
-  return [...all].filter(isMeshyUrl).slice(0, 50);
+  return [...all].slice(0, 50);
 }
 
 function fillLinks(links) {
@@ -131,12 +139,12 @@ async function fetchArrayBuffer(url) {
 
 async function scan() {
   try {
-    setBusy(true, "Searching for .meshy files in the current tab network activity...");
+    setBusy(true, "Searching for Meshy/Tripo3D model files in the current tab...");
     const links = await getLinksFromActiveTab();
     fillLinks(links);
     statusEl.textContent = links.length
-      ? `${links.length} .meshy file(s) found.`
-      : "No .meshy file found. Reload the page with the extension installed and try again.";
+      ? `${links.length} model file(s) found.`
+      : "No supported model found. Reload the page with the extension installed and try again.";
   } catch (error) {
     statusEl.textContent = `Scan error: ${error.message}`;
   } finally {
@@ -153,15 +161,18 @@ formatSelect.addEventListener("change", () => {
 convertButton.addEventListener("click", async () => {
   const url = linksSelect.value;
   if (!url) {
-    statusEl.textContent = "No .meshy file selected.";
+    statusEl.textContent = "No model file selected.";
     return;
   }
 
   try {
     const format = formatSelect.value;
-    setBusy(true, "Downloading .meshy...");
+    setBusy(true, "Downloading model...");
     const buffer = await fetchArrayBuffer(url);
-    setBusy(true, format === "glb" ? "Decoding GLB..." : `Decoding and converting to ${format.toUpperCase()}...`);
+    if (!isMeshyUrl(url) && !isGlbBuffer(buffer)) {
+      throw new Error("The selected resource is not a GLB model. Scan again and select the Tripo3D model download, not an API or preview resource.");
+    }
+    setBusy(true, format === "glb" ? "Preparing GLB..." : `Decoding and converting to ${format.toUpperCase()}...`);
     const output = await convertInSandbox(buffer, format);
     const mimeTypes = { stl: "model/stl", obj: "model/obj", glb: "model/gltf-binary" };
     await downloadBlob(new Blob([output], { type: mimeTypes[format] }), `${baseNameFromUrl(url)}.${format}`);

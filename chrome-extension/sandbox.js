@@ -194,7 +194,7 @@ function glbToBinaryStl(buffer) {
   const out = new ArrayBuffer(84 + triangleCount * 50);
   const bytes = new Uint8Array(out);
   const view = new DataView(out);
-  bytes.set(new TextEncoder().encode("Converted from Meshy GLB"));
+  bytes.set(new TextEncoder().encode("Converted from model GLB"));
   view.setUint32(80, triangleCount, true);
 
   let offset = 84;
@@ -235,7 +235,7 @@ function glbToBinaryStl(buffer) {
 function glbToObj(buffer) {
   const { json, bin } = readGlb(buffer);
   const meshNodes = collectMeshNodes(json);
-  const lines = ["# Converted from Meshy GLB"];
+  const lines = ["# Converted from model GLB"];
   let vertexOffset = 0;
   let objectIndex = 0;
 
@@ -275,10 +275,15 @@ function glbToObj(buffer) {
 }
 
 async function convert(buffer, format) {
-  const mod = await getMeshyModule();
-  const result = mod.processMeshyFile(new Uint8Array(buffer));
-  if (!result?.success) throw new Error(result?.error || "Failed to decode .meshy.");
-  const glb = result.data instanceof Uint8Array ? result.data.buffer.slice(result.data.byteOffset, result.data.byteOffset + result.data.byteLength) : result.data;
+  const bytes = new Uint8Array(buffer);
+  const isGlb = bytes.length >= 4 && new TextDecoder().decode(bytes.slice(0, 4)) === "glTF";
+  let glb = buffer;
+  if (!isGlb) {
+    const mod = await getMeshyModule();
+    const result = mod.processMeshyFile(bytes);
+    if (!result?.success) throw new Error(result?.error || "Failed to decode .meshy.");
+    glb = result.data instanceof Uint8Array ? result.data.buffer.slice(result.data.byteOffset, result.data.byteOffset + result.data.byteLength) : result.data;
+  }
   if (format === "glb") return glb;
   if (format === "obj") return glbToObj(glb);
   if (format === "stl") return glbToBinaryStl(glb);

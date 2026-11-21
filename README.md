@@ -1,12 +1,15 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Z6Z329PHJO)
 Support me if you want and I saved you some money :D
-# Meshy To STL
+# Meshy / Tripo3D To STL
 
-Meshy To STL is a Chrome extension that finds `.meshy` files loaded by the current browser tab and converts them to STL, OBJ, or GLB files.
+Meshy / Tripo3D To STL is a Chrome extension that finds `.meshy` and GLB model files loaded by the current browser tab and converts them to STL, OBJ, or GLB files.
 
 ## Features
 
-- Detects `.meshy` files from the current page network activity.
+- Detects `.meshy`, `.glb`, and `.gltf` files from the current page network activity.
+- Supports GLB model URLs loaded by Tripo3D Studio and Tripo API exports.
+- Supports models generated from the Tripo3D workspace at `studio.tripo3d.ai/pt/workspace/generate`.
+- Intercepts Tripo fetch/XHR responses and searches Nuxt/Vue state for model URLs, including signed CDN URLs without file extensions.
 - Also checks browser resource entries from `performance.getEntriesByType("resource")`.
 - Converts Meshy encrypted model files locally in the browser.
 - Exports binary STL for 3D printing, OBJ for 3D editors, or the decoded GLB model.
@@ -40,10 +43,10 @@ Then load the extension in Chrome:
 
 ## Usage
 
-1. Open the page where the Meshy model is hosted.
+1. Open the page where the Meshy or Tripo3D model is hosted, including the Tripo3D generation workspace.
 2. Reload the page so the extension can capture network requests.
 3. Click the Meshy To STL extension icon.
-4. Select the detected `.meshy` file.
+4. Select the detected model file.
 5. Choose STL, OBJ, or GLB.
 6. Click the download button.
 
@@ -56,3 +59,4 @@ Then load the extension in Chrome:
 - If the extension says decoder files are missing, run the setup script for your operating system and reload the extension in `chrome://extensions`.
 - The extension requires Google Chrome or a compatible Chromium browser; Safari is not supported.
 - Sites with login, temporary URLs, or strict download permissions may require you to be logged in with the same Chrome session.
+- Tripo model URLs can expire shortly after generation; scan and download them soon after they appear in the page.
