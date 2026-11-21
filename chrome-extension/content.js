@@ -9,8 +9,13 @@ function injectPageInterceptor() {
 }
 
 window.addEventListener("message", (event) => {
-  if (event.source !== window || event.data?.type !== "tripo-model-url") return;
-  chrome.runtime.sendMessage({ type: "remember-model-url", url: event.data.url }).catch(() => {});
+  if (event.source !== window) return;
+  if (event.data?.type === "tripo-model-url") {
+    chrome.runtime.sendMessage({ type: "remember-model-url", url: event.data.url }).catch(() => {});
+  }
+  if (event.data?.type === "tripo-preview-url") {
+    chrome.runtime.sendMessage({ type: "remember-preview-url", url: event.data.url }).catch(() => {});
+  }
 });
 
 injectPageInterceptor();

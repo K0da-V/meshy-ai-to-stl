@@ -27,6 +27,11 @@
     window.postMessage({ type: "tripo-model-url", url, source }, "*");
   }
 
+  function postPreview(url, source) {
+    if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return;
+    window.postMessage({ type: "tripo-preview-url", url, source }, "*");
+  }
+
   function extension(url) {
     try {
       const path = new URL(url).pathname.split("/").pop() || "";
@@ -75,6 +80,7 @@
       try { child = value[key]; } catch { continue; }
       if (typeof child === "string" && /^https?:\/\//i.test(child)) {
         const keyLooksRelevant = MODEL_KEYS.some((item) => key.toLowerCase().includes(item));
+        if (/rendered_image|generated_image|thumbnail|preview/i.test(key)) postPreview(child, `${source}:${key}`);
         if (keyLooksRelevant || isAssetUrl(child)) post(child, `${source}:${key}`);
       } else if (safeObject(child)) {
         extractObject(child, source, depth + 1, seen);

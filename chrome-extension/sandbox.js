@@ -232,12 +232,72 @@ function glbToBinaryStl(buffer) {
   return out;
 }
 
-function glbToObj(buffer) {
+function safeFileName(value, fallback) {
+  return String(value || fallback).replace(/[^a-z0-9_.-]+/gi, "_").replace(/^\.+|\.+$/g, "") || fallback;
+}
+
+function bytesFromDataUri(uri) {
+  const match = /^data:([^;,]+)?(;base64)?,(.*)$/i.exec(uri || "");
+  if (!match) return null;
+  const payload = decodeURIComponent(match[3]);
+  if (match[2]) {
+    const binary = atob(payload);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return { bytes, mimeType: match[1] || "application/octet-stream" };
+  }
+  return { bytes: new TextEncoder().encode(payload), mimeType: match[1] || "application/octet-stream" };
+}
+
+function imageExtension(mimeType) {
+  if (/jpeg/i.test(mimeType)) return "jpg";
+  if (/webp/i.test(mimeType)) return "webp";
+  return "png";
+}
+
+function embeddedTextures(json, bin) {
+  const files = [];
+  const names = [];
+  for (let index = 0; index < (json.images || []).length; index++) {
+    const image = json.images[index];
+    let bytes = null;
+    let mimeType = image.mimeType || "application/octet-stream";
+    if (image.bufferView !== undefined) {
+      const view = json.bufferViews[image.bufferView];
+      bytes = bin.slice(view.byteOffset || 0, (view.byteOffset || 0) + view.byteLength);
+    } else if (image.uri?.startsWith("data:")) {
+      const decoded = bytesFromDataUri(image.uri);
+      if (decoded) { bytes = decoded.bytes; mimeType = decoded.mimeType; }
+    }
+    if (!bytes) continue;
+    const name = `${safeFileName(image.name, `texture_${index + 1}`)}.${imageExtension(mimeType)}`;
+    names[index] = name;
+    files.push({ name, buffer: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), mimeType });
+  }
+  return { files, names };
+}
+
+function glbToObjPackage(buffer, baseName = "model") {
   const { json, bin } = readGlb(buffer);
   const meshNodes = collectMeshNodes(json);
-  const lines = ["# Converted from model GLB"];
+  const textures = embeddedTextures(json, bin);
+  const base = safeFileName(baseName, "model");
+  const objLines = ["# Converted from model GLB", `mtllib ${base}.mtl`];
+  const mtlLines = ["# Materials converted from model GLB"];
   let vertexOffset = 0;
+  let uvOffset = 0;
   let objectIndex = 0;
+
+  (json.materials || []).forEach((material, index) => {
+    const name = safeFileName(material.name, `material_${index + 1}`);
+    const pbr = material.pbrMetallicRoughness || {};
+    const color = pbr.baseColorFactor || [1, 1, 1, 1];
+    mtlLines.push(`newmtl ${name}`, `Kd ${color[0]} ${color[1]} ${color[2]}`, "Ka 0 0 0", "Ks 0 0 0", "d 1", "illum 2");
+    const textureIndex = pbr.baseColorTexture?.index;
+    const imageIndex = textureIndex === undefined ? undefined : json.textures?.[textureIndex]?.source;
+    if (imageIndex !== undefined && textures.names[imageIndex]) mtlLines.push(`map_Kd ${textures.names[imageIndex]}`);
+    mtlLines.push("");
+  });
 
   for (const { node, world } of meshNodes) {
     const mesh = json.meshes[node.mesh];
@@ -250,11 +310,18 @@ function glbToObj(buffer) {
       const indices = primitive.indices === undefined ? null : accessorReader(json, bin, primitive.indices);
       const objectName = String(mesh.name || node.name || `mesh_${objectIndex + 1}`)
         .replace(/[^a-z0-9_.-]+/gi, "_");
-      lines.push(`o ${objectName}_${primitiveIndex + 1}`);
+      objLines.push(`o ${objectName}_${primitiveIndex + 1}`);
+      if (primitive.material !== undefined) objLines.push(`usemtl ${safeFileName(json.materials?.[primitive.material]?.name, `material_${primitive.material + 1}`)}`);
+
+      const texcoords = primitive.attributes.TEXCOORD_0 === undefined ? null : accessorReader(json, bin, primitive.attributes.TEXCOORD_0);
 
       for (let i = 0; i < positions.count; i++) {
         const point = transform(world, positions.get(i));
-        lines.push(`v ${point[0]} ${point[1]} ${point[2]}`);
+        objLines.push(`v ${point[0]} ${point[1]} ${point[2]}`);
+        if (texcoords && i < texcoords.count) {
+          const uv = texcoords.get(i);
+          objLines.push(`vt ${uv[0]} ${1 - uv[1]}`);
+        }
       }
 
       const count = indices ? indices.count : positions.count;
@@ -262,19 +329,30 @@ function glbToObj(buffer) {
         const a = (indices ? indices.get(i)[0] : i) + vertexOffset + 1;
         const b = (indices ? indices.get(i + 1)[0] : i + 1) + vertexOffset + 1;
         const c = (indices ? indices.get(i + 2)[0] : i + 2) + vertexOffset + 1;
-        lines.push(`f ${a} ${b} ${c}`);
+        if (texcoords) objLines.push(`f ${a}/${a + uvOffset} ${b}/${b + uvOffset} ${c}/${c + uvOffset}`);
+        else objLines.push(`f ${a} ${b} ${c}`);
       }
 
       vertexOffset += positions.count;
+      if (texcoords) uvOffset += texcoords.count;
       objectIndex++;
     }
   }
 
   if (!objectIndex) throw new Error("GLB does not contain triangle meshes.");
-  return new TextEncoder().encode(`${lines.join("\n")}\n`).buffer;
+  const files = [
+    { name: `${base}.obj`, buffer: new TextEncoder().encode(`${objLines.join("\n")}\n`).buffer, mimeType: "text/plain" },
+    { name: `${base}.mtl`, buffer: new TextEncoder().encode(`${mtlLines.join("\n")}\n`).buffer, mimeType: "text/plain" },
+    ...textures.files,
+  ];
+  return { files };
 }
 
-async function convert(buffer, format) {
+function glbToObj(buffer) {
+  return glbToObjPackage(buffer).files[0].buffer;
+}
+
+async function convert(buffer, format, baseName = "model") {
   const bytes = new Uint8Array(buffer);
   const isGlb = bytes.length >= 4 && new TextDecoder().decode(bytes.slice(0, 4)) === "glTF";
   let glb = buffer;
@@ -285,6 +363,7 @@ async function convert(buffer, format) {
     glb = result.data instanceof Uint8Array ? result.data.buffer.slice(result.data.byteOffset, result.data.byteOffset + result.data.byteLength) : result.data;
   }
   if (format === "glb") return glb;
+  if (format === "obj-package") return glbToObjPackage(glb, baseName);
   if (format === "obj") return glbToObj(glb);
   if (format === "stl") return glbToBinaryStl(glb);
   throw new Error(`Unsupported output format: ${format}`);
@@ -293,8 +372,9 @@ async function convert(buffer, format) {
 window.addEventListener("message", async (event) => {
   if (event.data?.type !== "convert") return;
   try {
-    const output = await convert(event.data.buffer, event.data.format);
-    event.source.postMessage({ id: event.data.id, ok: true, output }, event.origin, [output]);
+    const output = await convert(event.data.buffer, event.data.format, event.data.baseName);
+    const transfer = output?.files ? output.files.map((file) => file.buffer) : [output];
+    event.source.postMessage({ id: event.data.id, ok: true, output }, event.origin, transfer);
   } catch (error) {
     event.source.postMessage({ id: event.data.id, ok: false, error: error.message }, event.origin);
   }

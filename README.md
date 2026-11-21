@@ -10,6 +10,8 @@ Meshy / Tripo3D To STL is a Chrome extension that finds `.meshy` and GLB model f
 - Supports GLB model URLs loaded by Tripo3D Studio and Tripo API exports.
 - Supports models generated from the Tripo3D workspace at `studio.tripo3d.ai/pt/workspace/generate`.
 - Intercepts Tripo fetch/XHR responses and searches Nuxt/Vue state for model URLs, including signed CDN URLs without file extensions.
+- Marks detected 3D model links in green and shows a small image preview when a Tripo thumbnail is available.
+- Automatically downloads a folder under `Tripo3D/<model>/` containing OBJ, MTL, embedded textures, and UV coordinates in the OBJ file.
 - Also checks browser resource entries from `performance.getEntriesByType("resource")`.
 - Converts Meshy encrypted model files locally in the browser.
 - Exports binary STL for 3D printing, OBJ for 3D editors, or the decoded GLB model.
@@ -49,6 +51,10 @@ Then load the extension in Chrome:
 4. Select the detected model file.
 5. Choose STL, OBJ, or GLB.
 6. Click the download button.
+
+When a Tripo model is detected, the extension also starts the OBJ package download automatically. The package keeps UV coordinates in the OBJ and references embedded image textures from its MTL file. If the model has no embedded textures, only the OBJ and MTL are generated.
+
+You can also paste a direct `.glb` or `.meshy` URL into **URL direta do modelo**. Select the desired output format and click **Baixar URL**. The OBJ package option saves its files under `Tripo3D/<model>/`.
 
 ## Notes
 

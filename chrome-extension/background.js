@@ -1,4 +1,6 @@
 const tabModelRequests = new Map();
+const tabPreviewRequests = new Map();
+const autoDownloadedModels = new Map();
 
 function isSupportedModelUrl(url) {
   if (!url || typeof url !== "string") return false;
@@ -27,6 +29,8 @@ chrome.webRequest.onBeforeRequest.addListener(
     if (details.tabId < 0) return;
     if (details.type === "main_frame") {
       tabModelRequests.delete(details.tabId);
+      tabPreviewRequests.delete(details.tabId);
+      autoDownloadedModels.delete(details.tabId);
       return;
     }
     remember(details.tabId, details.url);
@@ -52,6 +56,8 @@ chrome.webRequest.onHeadersReceived.addListener(
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabModelRequests.delete(tabId);
+  tabPreviewRequests.delete(tabId);
+  autoDownloadedModels.delete(tabId);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -65,6 +71,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "get-model-requests") {
-    sendResponse({ links: tabModelRequests.get(message.tabId) || [] });
+    sendResponse({ links: tabModelRequests.get(message.tabId) || [], previews: tabPreviewRequests.get(message.tabId) || [] });
+    return;
+  }
+
+  if (message?.type === "remember-preview-url" && sender.tab?.id !== undefined) {
+    const previews = tabPreviewRequests.get(sender.tab.id) || [];
+    if (!previews.includes(message.url)) previews.unshift(message.url);
+    tabPreviewRequests.set(sender.tab.id, previews.slice(0, 10));
+    sendResponse({ ok: true });
+    return;
+  }
+
+  if (message?.type === "claim-auto-download" && message.tabId !== undefined) {
+    const claimed = autoDownloadedModels.get(message.tabId) || new Set();
+    const shouldDownload = !claimed.has(message.url);
+    claimed.add(message.url);
+    autoDownloadedModels.set(message.tabId, claimed);
+    sendResponse({ shouldDownload });
   }
 });

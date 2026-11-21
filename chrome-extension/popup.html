@@ -13,12 +13,24 @@
         <button id="scan" type="button" title="Refresh current tab scan">Refresh</button>
       </header>
 
-      <select id="links" size="7" aria-label="Arquivos de modelo encontrados"></select>
+      <div id="links" role="listbox" aria-label="Arquivos encontrados"></div>
+
+      <div id="preview" hidden>
+        <img id="preview-image" alt="Preview do recurso selecionado">
+        <span id="preview-empty">Passe o mouse sobre um link para visualizar.</span>
+      </div>
+
+      <label for="url-input">URL direta do modelo</label>
+      <div class="url-row">
+        <input id="url-input" type="url" placeholder="https://.../model.glb" autocomplete="off">
+        <button id="download-url" type="button">Baixar URL</button>
+      </div>
 
       <label for="format">Output format</label>
       <select id="format">
         <option value="stl">STL (3D printing)</option>
         <option value="obj">OBJ (3D editors)</option>
+        <option value="obj-package">OBJ + MTL + textures + UV</option>
         <option value="glb">GLB (original decoded model)</option>
       </select>
 
